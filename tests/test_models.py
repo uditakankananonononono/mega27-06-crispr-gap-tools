@@ -1,7 +1,8 @@
 import torch
 
 from crisprgap.models.efficacy_cnn import GuideEfficacyCNN, make_aux_features
-from crisprgap.models.offtarget_gnn import OffTargetGNN, duplex_to_graph, NODE_DIM
+from crisprgap.models.offtarget_gnn import (OffTargetGNN, duplex_to_graph,
+                                            collate_graphs, NODE_DIM)
 
 
 def test_efficacy_cnn_forward_shapes():
@@ -30,21 +31,32 @@ def test_efficacy_cnn_gradient_flows():
 def test_duplex_graph_perfect_match():
     x, ei = duplex_to_graph("ACGT", "ACGT")
     assert x.shape == (4, NODE_DIM)
-    assert x[:, 16].sum() == 0.0  # no mismatches
+    assert x[:, 16].sum() == 0.0
     assert ei.shape[0] == 2
 
 
 def test_duplex_graph_mismatch_edges():
     x, ei = duplex_to_graph("AAAA", "ATTA")
-    assert x[:, 16].sum() == 2.0  # two mismatch positions
-    # mismatch-mismatch edges exist: 2 ordered pairs among the 2 mismatches
+    assert x[:, 16].sum() == 2.0
     mm_pairs = [(int(a), int(b)) for a, b in ei.t().tolist() if a in (1, 2) and b in (1, 2)]
     assert (1, 2) in mm_pairs and (2, 1) in mm_pairs
 
 
-def test_offtarget_gnn_forward_scalar():
+def test_offtarget_gnn_single_graph_scalar():
     model = OffTargetGNN()
     x, ei = duplex_to_graph("ACGTACGTACGTACGTACGT", "ACGTTCGTACGTACGTAGGT")
     out = model(x, ei)
-    assert out.dim() == 0
-    assert torch.isfinite(out)
+    assert out.shape == (1,)
+    assert torch.isfinite(out).all()
+
+
+def test_offtarget_gnn_batched_matches_single():
+    model = OffTargetGNN()
+    pairs = [("ACGT" * 5, "ACGT" * 5), ("A" * 20, "T" * 20)]
+    graphs = [duplex_to_graph(g, o) for g, o in pairs]
+    xb, eib, batch = collate_graphs(graphs)
+    out_batch = model(xb, eib, batch)
+    assert out_batch.shape == (2,)
+    singles = [model(x, ei) for x, ei in graphs]
+    for b, s in zip(out_batch, singles):
+        assert torch.allclose(b, s[0], atol=1e-5)

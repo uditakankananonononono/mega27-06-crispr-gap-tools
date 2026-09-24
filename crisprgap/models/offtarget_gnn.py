@@ -1,9 +1,10 @@
-"""GNN scorer for guide/off-target duplexes.
+"""GNN scorer for guide/off-target duplexes (batched over disjoint-union graphs).
 
-Each duplex is a graph: positions are nodes (one-hot base pair identity + mismatch
+Each duplex is a graph: positions are nodes (one-hot base-pair identity + mismatch
 flag + position), edges connect adjacent positions and all mismatch positions to
-each other (mismatch interaction graph). A small message-passing GNN produces a
-cleavage logit. This attacks the mismatch-context gap (gap 5).
+each other (mismatch interaction graph). Message passing over a disjoint-union
+batch scores many duplexes per forward pass. Attacks the mismatch-context gap (5)
+and the calibration gap (2) when paired with crisprgap.calibration.
 """
 from __future__ import annotations
 
@@ -36,10 +37,26 @@ def duplex_to_graph(guide: str, offtarget: str) -> tuple[torch.Tensor, torch.Ten
         for j in mm:
             if i != j:
                 edges.append((i, j))
-    if not edges:  # single-node graph fallback: self-loop
+    if not edges:
         edges = [(0, 0)]
     edge_index = torch.tensor(edges, dtype=torch.long).t().contiguous()
     return x, edge_index
+
+
+def collate_graphs(graphs: list[tuple[torch.Tensor, torch.Tensor]]) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Merge per-duplex graphs into one disjoint-union batch.
+
+    Returns (x (N_total, NODE_DIM), edge_index (2, E_total), batch (N_total,) graph ids).
+    """
+    xs, eis, batch = [], [], []
+    offset = 0
+    for gi, (x, ei) in enumerate(graphs):
+        n = x.size(0)
+        xs.append(x)
+        eis.append(ei + offset)
+        batch.append(torch.full((n,), gi, dtype=torch.long))
+        offset += n
+    return torch.cat(xs, 0), torch.cat(eis, 1), torch.cat(batch, 0)
 
 
 class MessagePassingLayer(nn.Module):
@@ -57,6 +74,15 @@ class MessagePassingLayer(nn.Module):
         return self.upd(agg / deg, x)
 
 
+def _scatter_pool(h: torch.Tensor, batch: torch.Tensor, n_graphs: int) -> tuple[torch.Tensor, torch.Tensor]:
+    mean = torch.zeros(n_graphs, h.size(1), device=h.device).index_add_(0, batch, h)
+    cnt = torch.zeros(n_graphs, device=h.device).index_add_(0, batch, torch.ones_like(batch, dtype=torch.float)).clamp(min=1).unsqueeze(1)
+    mean = mean / cnt
+    mx = torch.full((n_graphs, h.size(1)), -1e9, device=h.device)
+    mx.scatter_reduce_(0, batch.unsqueeze(1).expand_as(h), h, reduce="amax", include_self=True)
+    return mean, mx
+
+
 class OffTargetGNN(nn.Module):
     def __init__(self, node_dim: int = NODE_DIM, hidden: int = 48, steps: int = 3):
         super().__init__()
@@ -64,9 +90,14 @@ class OffTargetGNN(nn.Module):
         self.layers = nn.ModuleList([MessagePassingLayer(hidden) for _ in range(steps)])
         self.head = nn.Sequential(nn.Linear(hidden * 2, 64), nn.ReLU(), nn.Linear(64, 1))
 
-    def forward(self, x: torch.Tensor, edge_index: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, edge_index: torch.Tensor, batch: torch.Tensor | None = None) -> torch.Tensor:
+        """Single graph when batch is None; disjoint-union batch otherwise. Returns (n_graphs,) logits."""
         h = torch.relu(self.inp(x))
         for layer in self.layers:
             h = layer(h, edge_index)
-        pooled = torch.cat([h.mean(dim=0), h.max(dim=0).values], dim=0)
+        if batch is None:
+            pooled = torch.cat([h.mean(dim=0), h.max(dim=0).values], dim=0).unsqueeze(0)
+        else:
+            mean, mx = _scatter_pool(h, batch, int(batch.max().item()) + 1)
+            pooled = torch.cat([mean, mx], dim=1)
         return self.head(pooled).squeeze(-1)
