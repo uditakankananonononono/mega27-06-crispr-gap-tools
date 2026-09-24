@@ -61,7 +61,9 @@ def load_doench_v1(path: str | None = None) -> EfficacyDataset:
             parts = line.rstrip("\n").split("\t")
             if len(parts) < 11:
                 continue
-            s = _clean_seq(parts[1])
+            # V1 "Extended Spacer" is a 34-mer: NNNN + 20nt guide + NGG + NNNNNNN.
+            # The Azimuth 30-mer model input is its first 30 bases.
+            s = _clean_seq(parts[1])[:30]
             if len(s) != 30 or any(b not in "ACGT" for b in s):
                 continue
             seqs.append(s)

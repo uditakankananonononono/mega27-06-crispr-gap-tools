@@ -8,7 +8,7 @@ def test_mit_perfect_match_is_one():
 def test_mit_more_mismatches_lower_score():
     g = "A" * 20
     one_mm = "A" * 10 + "C" + "A" * 9
-    three_mm = "A" * 8 + "C" + "A" * 3 + "C" + "A" * 6 + "C" + "A" * 1
+    three_mm = "A" * 8 + "C" + "A" * 3 + "C" + "A" * 6 + "C"  # mismatches at 8, 12, 19
     assert 0 < mit_score(g, three_mm) < mit_score(g, one_mm) < 1.0
 
 
