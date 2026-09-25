@@ -35,8 +35,8 @@ def train_efficacy(out_dir: str = "results", epochs: int = 15, seed: int = 0) ->
 
     # baseline: ridge regression on aux features + one-hot position means
     Xf = X.reshape(n, -1).numpy()
-    base = Ridge(alpha=1.0).fit(Xf[tr.numpy()], y[tr].numpy())
-    base_pred = base.predict(Xf[te.numpy()])
+    base = Ridge(alpha=1.0).fit(Xf[tr], y[tr].numpy())
+    base_pred = base.predict(Xf[te])
     base_spearman = float(spearmanr(base_pred, y[te].numpy()).statistic)
 
     model = GuideEfficacyCNN()
