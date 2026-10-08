@@ -20,11 +20,18 @@ the highest-value gaps and benchmarks them against public leaders.
 9. Sequence-of-concern screening for DIY/biohacking use is not unified with design.
 10. Cross-species (non-model organism) guide efficacy transfer is untested in tools.
 
-Tools built here attack gaps 1, 2, 5, 6, 9 directly; the rest are documented with
-dataset-level evidence in the paper.
+This repo is the early umbrella for item 6. The tools for gaps 1-5 and 6-10 live in
+`mega27-06a-crispr-gap-tools-1-5` and `mega27-06b-crispr-gap-tools-6-10`; see those repos
+for their code, results and papers. The gap list above is the audit that motivated them.
 
 ## Contents
 - `crisprgap/` - Python package: data loaders (real public datasets), CNN efficacy
-  model, GNN off-target scorer, calibration, benchmark harness.
-- `tests/` - hermetic pytest suite (no network); live pulls only via CLI scripts.
-- `paper/` - 20-page Times New Roman research paper + figures.
+  model, GNN off-target scorer, calibration, baselines, training scripts.
+- `tests/` - 22 hermetic test functions (no network); live pulls only via `scripts/fetch_data.sh`.
+- `results/` - one committed result set: `efficacy_metrics.json`.
+- `docs/SOURCE_PROVENANCE_GAPS.md` - documentation record of source-term and hash gaps.
+
+## Status: verified / thin / missing
+- **Verified (committed result):** efficacy CNN vs ridge on Doench 2016 FC+RES (train 4,248 / test 1,062, 15 epochs, seed 0): test Spearman 0.556 (CNN) vs 0.463 (ridge); on the V1 set (n=2,144) 0.609 vs 0.444 (`results/efficacy_metrics.json`).
+- **Thin:** off-target GNN (`crisprgap/models/offtarget_gnn.py`, `train_offtarget.py`) and calibration (`calibration.py`) have code and tests but no committed benchmark result in this repo.
+- **Missing:** no paper or PDF has ever been committed here (no `paper/` directory in the git history). Earlier text claiming a 20-page paper in this repo was wrong. No multiplex, pegRNA, PAM-variant or biosecurity tools are built in this repo.
